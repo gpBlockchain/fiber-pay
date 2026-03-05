@@ -108,7 +108,6 @@ export async function* runPaymentJob(
                 paymentHash: sendResult.payment_hash,
                 status: 'DryRunSuccess',
                 fee: sendResult.fee,
-                failedError: sendResult.failed_error,
               },
             },
           });
