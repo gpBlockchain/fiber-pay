@@ -188,6 +188,90 @@ describe('runPaymentJob', () => {
     });
   });
 
+  describe('dry_run payments', () => {
+    it('does not transition to inflight and succeeds immediately when dry_run is true and status is Inflight', async () => {
+      let getPaymentCalled = false;
+      const rpc = {
+        sendPayment: async () =>
+          ({
+            payment_hash: '0xdeadbeef',
+            status: 'Inflight',
+            fee: '0x0',
+            created_at: '0x0',
+            last_updated_at: '0x0',
+          }) as Awaited<ReturnType<SendFn>>,
+        getPayment: async () => {
+          getPaymentCalled = true;
+          return {
+            payment_hash: '0xdeadbeef',
+            status: 'Success',
+            fee: '0x0',
+            created_at: '0x0',
+            last_updated_at: '0x0',
+          } as Awaited<ReturnType<GetFn>>;
+        },
+      } as unknown as FiberRpcClient;
+
+      const dryRunJob = makeJob({
+        params: {
+          invoice: 'test-invoice',
+          sendPaymentParams: {
+            invoice: 'test-invoice',
+            payment_hash: '0xdeadbeef' as `0x${string}`,
+            dry_run: true,
+          },
+        },
+      });
+
+      const states = await collectStates(dryRunJob, rpc);
+
+      expect(states).not.toContain('inflight');
+      expect(states[states.length - 1]).toBe('succeeded');
+      expect(getPaymentCalled).toBe(false);
+    });
+
+    it('does not transition to inflight and succeeds immediately when dry_run is true and status is Created', async () => {
+      let getPaymentCalled = false;
+      const rpc = {
+        sendPayment: async () =>
+          ({
+            payment_hash: '0xdeadbeef',
+            status: 'Created',
+            fee: '0x0',
+            created_at: '0x0',
+            last_updated_at: '0x0',
+          }) as Awaited<ReturnType<SendFn>>,
+        getPayment: async () => {
+          getPaymentCalled = true;
+          return {
+            payment_hash: '0xdeadbeef',
+            status: 'Success',
+            fee: '0x0',
+            created_at: '0x0',
+            last_updated_at: '0x0',
+          } as Awaited<ReturnType<GetFn>>;
+        },
+      } as unknown as FiberRpcClient;
+
+      const dryRunJob = makeJob({
+        params: {
+          invoice: 'test-invoice',
+          sendPaymentParams: {
+            invoice: 'test-invoice',
+            payment_hash: '0xdeadbeef' as `0x${string}`,
+            dry_run: true,
+          },
+        },
+      });
+
+      const states = await collectStates(dryRunJob, rpc);
+
+      expect(states).not.toContain('inflight');
+      expect(states[states.length - 1]).toBe('succeeded');
+      expect(getPaymentCalled).toBe(false);
+    });
+  });
+
   describe('inflight polling', () => {
     it('polls get_payment when initial send returns Inflight', async () => {
       let pollCount = 0;
