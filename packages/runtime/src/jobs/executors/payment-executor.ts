@@ -99,6 +99,24 @@ export async function* runPaymentJob(
           continue;
         }
 
+        // dry_run payments are not persisted by the Fiber node, so we cannot
+        // poll get_payment afterwards.  Treat the simulation result as the
+        // final answer and succeed immediately.
+        if (current.params.sendPaymentParams.dry_run) {
+          current = transitionJobState(current, paymentStateMachine, 'payment_success', {
+            patch: {
+              result: {
+                paymentHash: sendResult.payment_hash,
+                status: sendResult.status,
+                fee: sendResult.fee,
+                failedError: sendResult.failed_error,
+              },
+            },
+          });
+          yield current;
+          return;
+        }
+
         // Status is 'Created' or 'Inflight' — move to polling state
         current = transitionJobState(current, paymentStateMachine, 'payment_inflight');
         if (paymentHash) {

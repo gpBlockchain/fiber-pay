@@ -439,6 +439,8 @@ export class FiberPay {
     customRecords?: Record<string, HexString>;
     /** Maximum number of MPP parts (e.g. 4) */
     maxParts?: number;
+    /** Simulate the payment without actually sending it (no funds transferred) */
+    dryRun?: boolean;
   }): Promise<AgentResult<PaymentResult>> {
     this.ensureInitialized();
 
@@ -491,6 +493,7 @@ export class FiberPay {
         max_fee_amount: params.maxFeeCkb ? ckbToShannons(params.maxFeeCkb) : undefined,
         custom_records: params.customRecords,
         max_parts: params.maxParts ? toHex(params.maxParts) : undefined,
+        dry_run: params.dryRun ? true : undefined,
       };
 
       // Execute payment through runtime job manager when enabled
@@ -523,8 +526,8 @@ export class FiberPay {
         result = await this.getRpc().sendPayment(paymentParams);
       }
 
-      // Record successful payment
-      if (result.status === 'Success') {
+      // Record successful payment (skip for dry-run simulations — no funds transferred)
+      if (result.status === 'Success' && !params.dryRun) {
         this.policy.recordPayment(amountHex);
       }
 
@@ -541,8 +544,8 @@ export class FiberPay {
         failureReason: result.failed_error,
       };
 
-      // Record payment proof
-      if (this.paymentProofManager && result.status === 'Success') {
+      // Record payment proof (skip for dry-run simulations — no actual payment occurred)
+      if (this.paymentProofManager && result.status === 'Success' && !params.dryRun) {
         this.paymentProofManager.recordPaymentProof(
           result.payment_hash,
           params.invoice || '',
