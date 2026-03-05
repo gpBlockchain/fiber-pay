@@ -4,6 +4,9 @@
  * transient connectivity blip).  Unexpected errors are re-thrown by callers.
  */
 export function isExpectedTrackerError(error: unknown): boolean {
+  if (isPaymentSessionNotFoundError(error)) {
+    return false;
+  }
   const message = error instanceof Error ? error.message : String(error);
   return /not found|does not exist|no such|temporarily unavailable|connection refused|timed out|timeout/i.test(
     message,
