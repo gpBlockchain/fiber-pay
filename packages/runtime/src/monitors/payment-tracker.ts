@@ -2,7 +2,7 @@ import type { FiberRpcClient } from '@fiber-pay/sdk';
 import type { AlertManager } from '../alerts/alert-manager.js';
 import type { Store } from '../storage/types.js';
 import { BaseMonitor, type BaseMonitorHooks } from './base-monitor.js';
-import { isExpectedTrackerError } from './tracker-utils.js';
+import { isExpectedTrackerError, isPaymentSessionNotFoundError } from './tracker-utils.js';
 
 export interface PaymentTrackerConfig {
   intervalMs: number;
@@ -78,6 +78,24 @@ export class PaymentTracker extends BaseMonitor {
           }
         }
       } catch (error) {
+        if (isPaymentSessionNotFoundError(error)) {
+          // The payment session was never persisted (e.g. dry_run) or has been
+          // cleaned up — it will never appear.  Mark it as Failed immediately
+          // to stop the tracker from polling it on every future cycle.
+          this.store.updateTrackedPayment(payment.paymentHash, 'Failed');
+          await this.alerts.emit({
+            type: 'outgoing_payment_failed',
+            priority: 'high',
+            source: this.name,
+            data: {
+              paymentHash: payment.paymentHash,
+              previousStatus: payment.status,
+              currentStatus: 'Failed',
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+          continue;
+        }
         if (isExpectedTrackerError(error)) {
           continue;
         }

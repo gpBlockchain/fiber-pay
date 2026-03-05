@@ -63,6 +63,52 @@ describe('PaymentTracker', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it('marks payment as Failed and emits alert when getPayment throws "Payment session not found"', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fiber-payment-tracker-'));
+    const store = new MemoryStore({
+      stateFilePath: join(dir, 'runtime-state.json'),
+      flushIntervalMs: 1000,
+      maxAlertHistory: 100,
+    });
+    store.addTrackedPayment('0xpay-nosession', 'Created');
+
+    const emitted: Alert[] = [];
+    const alerts = new AlertManager({
+      backends: [new CaptureAlertBackend(emitted)],
+      store,
+    });
+
+    let getPaymentCalls = 0;
+    const client = {
+      getPayment: async () => {
+        getPaymentCalls++;
+        throw new Error('InvalidParameter: Payment session not found');
+      },
+    };
+
+    const tracker = new PaymentTracker({
+      client: client as unknown as FiberRpcClient,
+      store,
+      alerts,
+      config: {
+        intervalMs: 1000,
+        completedItemTtlSeconds: 60,
+      },
+    });
+
+    // First poll — should detect the permanent error and mark Failed
+    await (tracker as unknown as { poll: () => Promise<void> }).poll();
+    expect(getPaymentCalls).toBe(1);
+    expect(store.getTrackedPayment('0xpay-nosession')?.status).toBe('Failed');
+    expect(emitted.some((item) => item.type === 'outgoing_payment_failed')).toBe(true);
+
+    // Second poll — payment is now terminal, getPayment must NOT be called again
+    await (tracker as unknown as { poll: () => Promise<void> }).poll();
+    expect(getPaymentCalls).toBe(1);
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it('emits outgoing_payment_failed when tracked payment transitions to Failed', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'fiber-payment-tracker-'));
     const store = new MemoryStore({
