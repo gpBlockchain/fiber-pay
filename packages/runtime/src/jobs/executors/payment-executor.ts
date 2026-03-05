@@ -99,6 +99,22 @@ export async function* runPaymentJob(
           continue;
         }
 
+        // ── dry_run: treat as immediate success — Fiber node does not persist
+        // dry-run payments so polling getPayment would loop forever.
+        if (current.params.sendPaymentParams.dry_run) {
+          current = transitionJobState(current, paymentStateMachine, 'payment_success', {
+            patch: {
+              result: {
+                paymentHash: sendResult.payment_hash,
+                status: 'DryRunSuccess',
+                fee: sendResult.fee,
+              },
+            },
+          });
+          yield current;
+          return;
+        }
+
         // Status is 'Created' or 'Inflight' — move to polling state
         current = transitionJobState(current, paymentStateMachine, 'payment_inflight');
         if (paymentHash) {

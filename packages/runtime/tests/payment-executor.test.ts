@@ -239,4 +239,102 @@ describe('runPaymentJob', () => {
       expect(states[states.length - 1]).toBe('succeeded');
     });
   });
+
+  describe('dry_run', () => {
+    it('succeeds immediately without polling when dry_run is true', async () => {
+      let getPaymentCalled = false;
+      const rpc = {
+        sendPayment: async () =>
+          ({
+            payment_hash: '0xdeadbeef',
+            status: 'Created',
+            fee: '0x0',
+            created_at: '0x0',
+            last_updated_at: '0x0',
+          }) as Awaited<ReturnType<SendFn>>,
+        getPayment: async () => {
+          getPaymentCalled = true;
+          return {
+            payment_hash: '0xdeadbeef',
+            status: 'Created',
+            fee: '0x0',
+            created_at: '0x0',
+            last_updated_at: '0x0',
+          } as Awaited<ReturnType<GetFn>>;
+        },
+      } as unknown as FiberRpcClient;
+
+      const dryRunJob = makeJob({
+        params: {
+          invoice: 'test-invoice',
+          sendPaymentParams: {
+            invoice: 'test-invoice',
+            payment_hash: '0xdeadbeef' as `0x${string}`,
+            dry_run: true,
+          },
+        },
+      });
+
+      const states: string[] = [];
+      let finalJob: PaymentJob | undefined;
+      for await (const updated of runPaymentJob(
+        dryRunJob,
+        rpc,
+        defaultPaymentRetryPolicy,
+        new AbortController().signal,
+      )) {
+        states.push(updated.state);
+        finalJob = updated;
+      }
+
+      // Should transition queued → executing → succeeded, never entering inflight
+      expect(states).toContain('executing');
+      expect(states).not.toContain('inflight');
+      expect(states[states.length - 1]).toBe('succeeded');
+      // getPayment should never be called for dry_run
+      expect(getPaymentCalled).toBe(false);
+      // Result should indicate it was a dry run
+      expect(finalJob?.result?.status).toBe('DryRunSuccess');
+    });
+
+    it('does not treat Inflight as inflight when dry_run is true', async () => {
+      const rpc = {
+        sendPayment: async () =>
+          ({
+            payment_hash: '0xdeadbeef',
+            status: 'Inflight',
+            fee: '0x0',
+            created_at: '0x0',
+            last_updated_at: '0x0',
+          }) as Awaited<ReturnType<SendFn>>,
+        getPayment: async () => {
+          throw new Error('getPayment should not be called for dry_run');
+        },
+      } as unknown as FiberRpcClient;
+
+      const dryRunJob = makeJob({
+        params: {
+          invoice: 'test-invoice',
+          sendPaymentParams: {
+            invoice: 'test-invoice',
+            payment_hash: '0xdeadbeef' as `0x${string}`,
+            dry_run: true,
+          },
+        },
+      });
+
+      const states: string[] = [];
+      for await (const updated of runPaymentJob(
+        dryRunJob,
+        rpc,
+        defaultPaymentRetryPolicy,
+        new AbortController().signal,
+      )) {
+        states.push(updated.state);
+      }
+
+      expect(states).not.toContain('inflight');
+      expect(states[states.length - 1]).toBe('succeeded');
+    });
+  });
 });
